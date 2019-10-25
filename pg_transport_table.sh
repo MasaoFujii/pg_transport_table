@@ -1,9 +1,12 @@
 #!/bin/sh
 
-set -e
-
 PROGNAME=$(basename ${0})
 CURDIR=$(pwd)
+RETFILE=$(mktemp)
+TMPFILE=$(mktemp)
+
+set -E
+trap elog ERR
 
 PSQL=$(which psql || echo "$CURDIR/bin/psql")" -X -At"
 
@@ -13,7 +16,8 @@ TBL=
 
 elog ()
 {
-  echo "$PROGNAME: ERROR: $1" 1>&2
+  [ ! -z "$1" ] && echo "$PROGNAME: ERROR: $1" 1>&2
+  rm -f $RETFILE $TMPFILE
   exit 1
 }
 
@@ -26,8 +30,8 @@ Usage:
   $PROGNAME [OPTIONS] TABLENAME
 
 Options:
-  -d CONNINFO    connection string to connect to destination server
-  -s CONNINFO    connection string to connect to source server
+  -d CONNINFO    connection string to destination server
+  -s CONNINFO    connection string to source server
 EOF
 }
 
@@ -105,19 +109,27 @@ done
 EOF
 }
 
+rename_template ()
+{
+  RELSRC="$1"
+  RELDST="$2"
+  echo "mv $RELSRC $RELDST"
+  echo "rm -f ${RELSRC}_init"
+  rename_multiple_files "$RELSRC" "$RELDST"
+  echo "$RELSRC" >> $TMPFILE
+  echo "$RELDST" >> $TMPFILE
+}
+
 rename_table ()
 {
   psql_both "SELECT relfilenode FROM pg_class WHERE relname = '$TBL'"
   [ -z "$RETSRC" ] && elog "table \"$TBL\" doesn't exist in source server"
   [ -z "$RETDST" ] && elog "table \"$TBL\" doesn't exist in destination server"
-
-  echo "mv $RETSRC $RETDST"
-  echo "rm ${RETSRC}_init"
+  rename_template "$RETSRC" "$RETDST"
   echo "mv ${RETSRC}_fsm ${RETDST}_fsm"
   echo "mv ${RETSRC}_vm ${RETDST}_vm"
-  rename_multiple_files "$RETSRC" "$RETDST"
 }
-rename_table
+rename_table >> $RETFILE
 
 rename_indexes ()
 {
@@ -127,31 +139,34 @@ rename_indexes ()
     psql_both "SELECT relfilenode FROM pg_class WHERE relname = '$idx'"
     [ -z "$RETSRC" ] && elog "index \"$idx\" doesn't exist in source server"
     [ -z "$RETDST" ] && elog "index \"$idx\" doesn't exist in destination server"
-
-    echo "mv $RETSRC $RETDST"
-    echo "rm ${RETSRC}_init"
-    rename_multiple_files "$RETSRC" "$RETDST"
+    rename_template "$RETSRC" "$RETDST"
   done
 }
-rename_indexes
+rename_indexes >> $RETFILE
 
 rename_toast ()
 {
   psql_both "SELECT reltoastrelid FROM pg_class WHERE relname = '$TBL'"
   [ $RETSRC -eq 0 ] && return 0
   [ $RETDST -eq 0 ] && elog "table \"$TBL\" doesn't have TOAST table in destination server"
-
-  echo "mv $RETSRC $RETDST"
-  echo "rm ${RETSRC}_init"
-  rename_multiple_files "$RETSRC" "$RETDST"
+  rename_template "$RETSRC" "$RETDST"
 }
-rename_toast
+rename_toast >> $RETFILE
 
 rename_toast_index ()
 {
   psql_both "SELECT indexrelid FROM pg_class, pg_index WHERE relname = '$TBL' AND reltoastrelid = indrelid"
-  echo "mv $RETSRC $RETDST"
-  echo "rm ${RETSRC}_init"
-  rename_multiple_files "$RETSRC" "$RETDST"
+  rename_template "$RETSRC" "$RETDST"
 }
-rename_toast_index
+rename_toast_index >> $RETFILE
+
+check_duplicate_filename ()
+{
+  RET=$(sort $TMPFILE | uniq -d)
+  [ ! -z "$RET" ] && elog "duplicate file names: $(echo $RET | tr -d '\n')"
+}
+check_duplicate_filename
+
+cat $RETFILE
+
+rm -f $RETFILE $TMPFILE
