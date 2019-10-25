@@ -12,12 +12,13 @@ PSQL=$(which psql || echo "$CURDIR/bin/psql")" -X -At"
 
 SRC=
 DST=
+ROOT=
 TBL=
 OUTPUT=
 
 elog ()
 {
-  [ ! -z "$1" ] && echo "$PROGNAME: ERROR: $1" 1>&2
+  [ -z "$1" ] || echo "$PROGNAME: ERROR: $1" 1>&2
   rm -f $RETFILE $TMPFILE
   exit 1
 }
@@ -55,8 +56,8 @@ while [ $# -gt 0 ]; do
     -*)
       elog "invalid option: $1";;
     *)
-      if [ -z "$TBL" ]; then
-	TBL="$1"
+      if [ -z "$ROOT" ]; then
+	ROOT="$1"
       else
 	elog "too many arguments"
       fi
@@ -65,39 +66,32 @@ while [ $# -gt 0 ]; do
   shift
 done
 
-if [ -z "$TBL" ]; then
-  elog "name of table to transport must be specified"
-fi
+[ ! -z "$ROOT" ] || elog "name of table to transport must be specified"
 
 RETSRC=
 psql_src ()
 {
-  [ ! -z "$1" ] && SQL="$1"
-  RETSRC=$($PSQL -d "$SRC" -c "$SQL")
+  RETSRC=$($PSQL -d "$SRC" -c "${1:-$SQL}")
 }
 
 RETDST=
 psql_dst ()
 {
-  [ ! -z "$1" ] && SQL="$1"
-  RETDST=$($PSQL -d "$DST" -c "$SQL")
+  RETDST=$($PSQL -d "$DST" -c "${1:-$SQL}")
 }
 
 psql_both ()
 {
-  [ ! -z "$1" ] && SQL="$1"
-  psql_src
-  psql_dst
+  psql_src "${1:-$SQL}"
+  psql_dst "${1:-$SQL}"
 }
 
 check_sysid ()
 {
   psql_both "SELECT system_identifier FROM pg_control_system()"
-  if [ "$RETSRC" == "$RETDST" ]; then
-    elog "source and destination servers must be differenet"
-  fi
+  [ "$RETSRC" != "$RETDST" ] ||
+    elog "source and destination must be differenet servers"
 }
-check_sysid
 
 rename_multiple_files ()
 {
@@ -126,16 +120,21 @@ rename_template ()
   echo "$RELDST" >> $TMPFILE
 }
 
+check_table ()
+{
+  TBL="${1:-$TBL}"
+  psql_both "SELECT relfilenode FROM pg_class WHERE relname = '$TBL'"
+  [ ! -z "$RETSRC" ] || elog "table \"$TBL\" doesn't exist in source server"
+  [ ! -z "$RETDST" ] || elog "table \"$TBL\" doesn't exist in destination server"
+}
+
 rename_table ()
 {
-  psql_both "SELECT relfilenode FROM pg_class WHERE relname = '$TBL'"
-  [ -z "$RETSRC" ] && elog "table \"$TBL\" doesn't exist in source server"
-  [ -z "$RETDST" ] && elog "table \"$TBL\" doesn't exist in destination server"
+  check_table
   rename_template "$RETSRC" "$RETDST"
   echo "mv ${RETSRC}_fsm ${RETDST}_fsm"
   echo "mv ${RETSRC}_vm ${RETDST}_vm"
 }
-rename_table >> $RETFILE
 
 rename_indexes ()
 {
@@ -143,36 +142,57 @@ rename_indexes ()
   IDXLIST="$RETSRC"
   for idx in $IDXLIST; do
     psql_both "SELECT relfilenode FROM pg_class WHERE relname = '$idx'"
-    [ -z "$RETSRC" ] && elog "index \"$idx\" doesn't exist in source server"
-    [ -z "$RETDST" ] && elog "index \"$idx\" doesn't exist in destination server"
+    [ ! -z "$RETSRC" ] || elog "index \"$idx\" doesn't exist in source server"
+    [ ! -z "$RETDST" ] || elog "index \"$idx\" doesn't exist in destination server"
     rename_template "$RETSRC" "$RETDST"
   done
 }
-rename_indexes >> $RETFILE
 
 rename_toast ()
 {
   psql_both "SELECT reltoastrelid FROM pg_class WHERE relname = '$TBL'"
-  [ $RETSRC -eq 0 ] && return 0
-  [ $RETDST -eq 0 ] && elog "table \"$TBL\" doesn't have TOAST table in destination server"
+  [ $RETSRC -ne 0 ] || return 0
+  [ $RETDST -ne 0 ] || elog "table \"$TBL\" has no TOAST table in destination server"
   rename_template "$RETSRC" "$RETDST"
 }
-rename_toast >> $RETFILE
 
 rename_toast_index ()
 {
   psql_both "SELECT indexrelid FROM pg_class, pg_index WHERE relname = '$TBL' AND reltoastrelid = indrelid"
+  [ ! -z "$RETSRC" ] || return 0
+  [ ! -z "$RETDST" ] || elog "table \"\$TBL has no TOAST index in destination server "
   rename_template "$RETSRC" "$RETDST"
 }
-rename_toast_index >> $RETFILE
+
+rename_relation ()
+{
+  TBL="${1:-$TBL}"
+  rename_table
+  rename_indexes
+  rename_toast
+  rename_toast_index
+}
 
 check_duplicate_filename ()
 {
   RET=$(sort $TMPFILE | uniq -d)
-  if [ ! -z "$RET" ]; then
-    elog "duplicate file names: $(echo $RET | tr -d '\n')"
-  fi
+  [ -z "$RET" ] || elog "duplicate file names: $(echo $RET | tr -d '\n')"
 }
+
+rename_partition ()
+{
+  check_table "$ROOT"
+  psql_both "SELECT relid FROM (SELECT * FROM pg_partition_tree('$ROOT')) ppt WHERE ppt.isleaf"
+  [ "$RETSRC" == "$RETDST" ] ||
+    elog "definitions of partitions are not the same between source and destination servers"
+  TBLLIST="${RETSRC:-$ROOT}"
+  for tbl in $TBLLIST; do
+    rename_relation "$tbl"
+  done
+}
+
+check_sysid
+rename_partition >> $RETFILE
 check_duplicate_filename
 
 if [ -z "$OUTPUT" ]; then
