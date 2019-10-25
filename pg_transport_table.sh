@@ -13,6 +13,7 @@ PSQL=$(which psql || echo "$CURDIR/bin/psql")" -X -At"
 SRC=
 DST=
 TBL=
+OUTPUT=
 
 elog ()
 {
@@ -24,14 +25,16 @@ elog ()
 usage ()
 {
   cat <<EOF
-$PROGNAME transports the specified table from source to destination server.
+$PROGNAME outputs lists of commands that transport
+the specified table from source to destination server.
 
 Usage:
   $PROGNAME [OPTIONS] TABLENAME
 
 Options:
-  -d CONNINFO    connection string to destination server
   -s CONNINFO    connection string to source server
+  -d CONNINFO    connection string to destination server
+  -o FILEPATH    output file path (default: output to stdout)
 EOF
 }
 
@@ -40,11 +43,14 @@ while [ $# -gt 0 ]; do
     "-?"|--help)
       usage
       exit 0;;
+    -s)
+      SRC="$2"
+      shift;;
     -d)
       DST="$2"
       shift;;
-    -s)
-      SRC="$2"
+    -o)
+      OUTPUT="$2"
       shift;;
     -*)
       elog "invalid option: $1";;
@@ -167,6 +173,10 @@ check_duplicate_filename ()
 }
 check_duplicate_filename
 
-cat $RETFILE
+if [ -z "$OUTPUT" ]; then
+  cat $RETFILE
+else
+  mv $RETFILE $OUTPUT
+fi
 
 rm -f $RETFILE $TMPFILE
