@@ -131,6 +131,7 @@ check_table ()
 rename_table ()
 {
   check_table
+  echo "### transporting table \"$TBL\""
   rename_template "$RETSRC" "$RETDST"
   echo "mv ${RETSRC}_fsm ${RETDST}_fsm"
   echo "mv ${RETSRC}_vm ${RETDST}_vm"
@@ -144,6 +145,7 @@ rename_indexes ()
     psql_both "SELECT relfilenode FROM pg_class WHERE relname = '$idx'"
     [ ! -z "$RETSRC" ] || elog "index \"$idx\" doesn't exist in source server"
     [ ! -z "$RETDST" ] || elog "index \"$idx\" doesn't exist in destination server"
+    echo "### transporting index \"$idx\""
     rename_template "$RETSRC" "$RETDST"
   done
 }
@@ -153,6 +155,7 @@ rename_toast ()
   psql_both "SELECT reltoastrelid FROM pg_class WHERE relname = '$TBL'"
   [ $RETSRC -ne 0 ] || return 0
   [ $RETDST -ne 0 ] || elog "table \"$TBL\" has no TOAST table in destination server"
+  echo "### transporting TOAST table of \"$TBL\""
   rename_template "$RETSRC" "$RETDST"
 }
 
@@ -161,6 +164,7 @@ rename_toast_index ()
   psql_both "SELECT indexrelid FROM pg_class, pg_index WHERE relname = '$TBL' AND reltoastrelid = indrelid"
   [ ! -z "$RETSRC" ] || return 0
   [ ! -z "$RETDST" ] || elog "table \"\$TBL has no TOAST index in destination server "
+  echo "### transporting TOAST index of \"$TBL\""
   rename_template "$RETSRC" "$RETDST"
 }
 
@@ -168,8 +172,11 @@ rename_relation ()
 {
   TBL="${1:-$TBL}"
   rename_table
+  echo ""
   rename_indexes
+  echo ""
   rename_toast
+  echo ""
   rename_toast_index
 }
 
