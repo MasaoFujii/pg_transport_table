@@ -169,7 +169,9 @@ rename_toast_index >> $RETFILE
 check_duplicate_filename ()
 {
   RET=$(sort $TMPFILE | uniq -d)
-  [ ! -z "$RET" ] && elog "duplicate file names: $(echo $RET | tr -d '\n')"
+  if [ ! -z "$RET" ]; then
+    elog "duplicate file names: $(echo $RET | tr -d '\n')"
+  fi
 }
 check_duplicate_filename
 
