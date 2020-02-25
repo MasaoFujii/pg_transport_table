@@ -1,3 +1,33 @@
+CREATE OR REPLACE FUNCTION dump_relfilenodes (tbl regclass)
+    RETURNS SETOF text AS $$
+DECLARE
+    indexoid oid;
+BEGIN
+    RETURN QUERY
+        SELECT 'SELECT print_transport_commands(''' ||
+	    nsp.nspname || '.' ||
+	    rel.relname || '''' || ', ' ||
+	    rel.relfilenode || ', ' ||
+	    COALESCE(pg_relation_filenode(rel.reltoastrelid), 0) || ',' ||
+	    COALESCE(pg_relation_filenode(idx.indexrelid), 0) || ');'
+        FROM pg_namespace nsp
+	    JOIN pg_class rel ON nsp.oid = rel.relnamespace
+	    LEFT JOIN pg_index idx ON rel.reltoastrelid = idx.indrelid
+        WHERE rel.oid = tbl;
+
+    RETURN QUERY
+        SELECT 'SELECT print_transport_commands(''' ||
+	    nsp.nspname || '.' ||
+	    rel.relname || '''' || ', ' ||
+	    rel.relfilenode || ');'
+        FROM pg_namespace nsp
+	    JOIN pg_class rel ON nsp.oid = rel.relnamespace
+	    JOIN pg_index idx ON rel.oid = idx.indexrelid
+        WHERE idx.indrelid = tbl;
+END;
+$$ LANGUAGE plpgsql STRICT VOLATILE;
+
+
 CREATE OR REPLACE FUNCTION print_transport_commands (
     tbl regclass,
     newtblid bigint,
