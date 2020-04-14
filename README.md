@@ -106,7 +106,16 @@
     =# CHECKPOINT;
     ```
 1. Create tables to transport in the production server. Also create other database objects like indexes, partitions, etc related to the tables in the production server. All the database objects related to the tables to transport must be created in the same way in both temporary and production servers.
-1. Execute dump_relfilenodes() with each table to transport, in the production server. Write the output of the function into the file, and copy the output file from the production server to the temporary server.
+1. Execute dump_relfilenodes() with each table to transport, in the production server. Write the output of the function into the file, and copy the output file from the production server to the temporary server. For example,
+    ```
+    [prod] $ psql
+    =# \t
+    =# \o /tmp/transport_example.sql
+    =# SELECT dump_relfilenodes('example');
+    =# \q
+
+    [prod] $ scp /tmp/transport_example.sql xxx@temporary_server:/tmp/transport_example.sql
+    ```
 1. Execute the file copied from the production server, as SQL file, in the temporary server. Write the output of the execution of that function into the file.
 1. Confirm that ***[1]*** is larger than the current WAL write location (i.e., pg_current_wal_lsn()) in the temporary server.
     - If ***[1]*** is less than or equal to the current WAL write location in the temporary server, you need to back to the step that creates the database cluster.
