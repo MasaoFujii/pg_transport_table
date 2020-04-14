@@ -1,15 +1,24 @@
-# How to transport table
-0. PostgreSQL is already running in the destination server. Probably it's providing database service.
-1. Install PostgreSQL in the source server. Note that the major version of PostgreSQL must be the same between the source and destination servers. Probably it's better to use the same minor version of PostgreSQL.
-2. Create database cluster in the source server. Note that the settings (e.g., --encoding, --locale, etc) specified when creating database cluster must be the same between the source and destination servers.
-3. Start PostgreSQL in the source server.
-4. Create tablespace where the table to transport will be located in both the source and destination servers.
-5. Create table to transport in the source server. Note that UNLOGGED and TABLESPACE options must be specified when creating table. Also create other database objects like index, partition, etc related to the table in the source server. All the database objects to transport must be located on the tablespace created in the step #4.
-6. Load data to the table in the source server.
-7. Execute ```VACUUM FREEZE``` on the table in the source server. It's better to execute ```VACUUM FREEZE``` at least twice just in the case.
-8. Execute ```CHECKPOINT``` in the source server. It's better to execute ```CHECKPOINT``` at least twice just in the case.
-9. Create table to transport in the destination server. Note that TABLESPACE option must be specified when creating table. Also create other database objects like index, partition, etc related to the table in the destination server. All the database objects related to the table to transport must be created in the same way in both source and destination servers.
-10. Run pg_transport_table.sh in the source server, and save its output as the shell script. The connection strings to the source and destination servers must be specified, respectively.
-11. Shutdown PostgreSQL in the source server.
-12. Run the shell script created by the step #10, in the source server. It must be ran under the directory storing the file of table to transport. The shell script will rename the file of the database objects to transport so that the destination server can handle them.
-13. Copy all the renamed files from the source's tablespace to the destination's. Instead, you can umount the disk space that the tablespace in the source server uses, and mount that so that we can access to it from the destination server.
+# How to transport tables
+1. PostgreSQL is already running in the production server. Probably it's providing database service.
+1. Install PostgreSQL in the temporary server if not yet. Note that the following things must be the same between the production and temporary servers.
+    - The major version of PostgreSQL (Also probably it's better to use the same minor version of PostgreSQL).
+    - The configure and compile options used when building PostgreSQL. Those options are viewable from the result of pg_config command.
+1. Create the database cluster in the temporary server. Note that the settings (e.g., --encoding, --locale, --data-checksums, etc) specified when creating database cluster must be the same between the temporary and production servers.
+1. Start PostgreSQL in the temporary server.
+    - It's better to tune the configuration specially for high performance data bulkloading.
+1. Install the functions to use for transporting the tables, by executing pg_transport_table.sql, in both production and temporary servers if not installed yet.
+1. Confirm that the latest checkpoint redo location in the production server is larger than the current WAL write location (i.e., pg_current_wal_lsn()) in the temporary server. Save and mark the latest checkpoint redo location in the production server, as [1].
+    - If the latest checkpoint redo location in the production server is less than or equal to the current WAL write location in the temporary server, you need to back to the step that creates the database cluster. Or you need to wait until many transactions happen in the production server and its latest checkpoint redo location becomes enough large.
+    - The latest checkpoint redo location is viewable from the result of pg_controldata command.
+1. Create the tables to transport in the temporary server. Also create other database objects like indexes, partitions, etc related to the tables in the temporary server.
+1. Load data to the tables in the temporary server.
+1. Execute ```VACUUM FREEZE``` on the tables in the temporary server. It's better to execute ```VACUUM FREEZE``` at least twice just in the case.
+1. Execute ```CHECKPOINT``` in the temporary server. It's better to execute ```CHECKPOINT``` at least twice just in the case.
+1. Create tables to transport in the production server. Also create other database objects like indexes, partitions, etc related to the tables in the production server. All the database objects related to the tables to transport must be created in the same way in both temporary and production servers.
+1. Execute dump_relfilenodes() with each table to transport, in the production server. Write the output of the function into the file, and copy the output file from the production server to the temporary server.
+1. Execute the file copied from the production server, as SQL file, in the temporary server. Write the output of the execution of that function into the file.
+1. Confirm that [1] is larger than the current WAL write location (i.e., pg_current_wal_lsn()) in the temporary server.
+    - If [1] is less than or equal to the current WAL write location in the temporary server, you need to back to the step that creates the database cluster.
+1. Shutdown PostgreSQL in the temporary server.
+1. Move under the database cluster directory in the temporary server, and execute the file output by the above step, as the shell script. This shell script renames the files of the database objects to transport, so that the production server can handle them.
+1. Copy all the renamed files from the temporary server to the production server.
