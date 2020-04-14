@@ -1,11 +1,12 @@
-CREATE OR REPLACE FUNCTION dump_relfilenodes (tbl regclass)
+CREATE OR REPLACE FUNCTION dump_relfilenodes (label text, tbl regclass)
     RETURNS SETOF text AS $$
 DECLARE
     indexoid oid;
 BEGIN
     RETURN QUERY
         SELECT 'SELECT print_transport_commands(''' ||
-	    nsp.nspname || '.' ||
+            label || ''', ''' ||
+            nsp.nspname || '.' ||
 	    rel.relname || '''' || ', ' ||
 	    rel.relfilenode || ', ' ||
 	    COALESCE(pg_relation_filenode(rel.reltoastrelid), 0) || ', ' ||
@@ -17,6 +18,7 @@ BEGIN
 
     RETURN QUERY
         SELECT 'SELECT print_transport_commands(''' ||
+            label || ''', ''' ||
 	    nsp.nspname || '.' ||
 	    rel.relname || '''' || ', ' ||
 	    rel.relfilenode || ');'
@@ -29,6 +31,7 @@ $$ LANGUAGE plpgsql STRICT VOLATILE;
 
 
 CREATE OR REPLACE FUNCTION print_transport_commands (
+    label text,
     tbl regclass,
     newtblid bigint,
     newtoastid bigint DEFAULT 0,
@@ -36,6 +39,7 @@ CREATE OR REPLACE FUNCTION print_transport_commands (
     RETURNS SETOF text AS $$
 DECLARE
     basedir text;
+    newdir text;
     oldtblid bigint := 0;
     oldtoastid bigint := 0;
     oldtoastidxid bigint := 0;
@@ -55,21 +59,22 @@ BEGIN
     END IF;
 
     basedir := rtrim(pg_relation_filepath(tbl), '0123456789');
+    newdir := basedir || label || '/';
     oldtblid := pg_relation_filenode(tbl);
-    RETURN NEXT 'mv ' || basedir || oldtblid || ' ' || basedir || newtblid;
+    RETURN NEXT 'mv ' || basedir || oldtblid || ' ' || newdir || newtblid;
 
     segno := 1;
     LOOP
         filepath := basedir || oldtblid || '.' || segno;
 	EXIT WHEN pg_stat_file(filepath, true) IS NULL;
-	RETURN NEXT 'mv ' || filepath || ' ' || basedir || newtblid || '.' || segno;
+	RETURN NEXT 'mv ' || filepath || ' ' || newdir || newtblid || '.' || segno;
 	segno := segno + 1;
     END LOOP;
 
     FOR fork IN SELECT unnest(ARRAY['_fsm', '_vm', '_init']) LOOP
         filepath := basedir || oldtblid || fork;
 	CONTINUE WHEN pg_stat_file(filepath, true) IS NULL;
-        RETURN NEXT 'mv ' || filepath || ' ' || basedir || newtblid || fork;
+        RETURN NEXT 'mv ' || filepath || ' ' || newdir || newtblid || fork;
     END LOOP;
 
     IF newtoastid = 0 THEN
@@ -88,21 +93,21 @@ BEGIN
         RAISE EXCEPTION 'TOAST index must exist if TOAST exists';
     END IF;
 
-    RETURN NEXT 'mv ' || basedir || oldtoastid || ' ' || basedir || newtoastid;
+    RETURN NEXT 'mv ' || basedir || oldtoastid || ' ' || newdir || newtoastid;
     segno := 1;
     LOOP
         filepath := basedir || oldtoastid || '.' || segno;
 	EXIT WHEN pg_stat_file(filepath, true) IS NULL;
-	RETURN NEXT 'mv ' || filepath || ' ' || basedir || newtoastid || '.' || segno;
+	RETURN NEXT 'mv ' || filepath || ' ' || newdir || newtoastid || '.' || segno;
 	segno := segno + 1;
     END LOOP;
 
-    RETURN NEXT 'mv ' || basedir || oldtoastidxid || ' ' || basedir || newtoastidxid;
+    RETURN NEXT 'mv ' || basedir || oldtoastidxid || ' ' || newdir || newtoastidxid;
     segno := 1;
     LOOP
         filepath := basedir || oldtoastidxid || '.' || segno;
 	EXIT WHEN pg_stat_file(filepath, true) IS NULL;
-	RETURN NEXT 'mv ' || filepath || ' ' || basedir || newtoastidxid || '.' || segno;
+	RETURN NEXT 'mv ' || filepath || ' ' || newdir || newtoastidxid || '.' || segno;
 	segno := segno + 1;
     END LOOP;
 
