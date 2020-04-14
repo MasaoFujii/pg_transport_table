@@ -2,7 +2,12 @@ CREATE OR REPLACE FUNCTION dump_relfilenodes (label text, tbl regclass)
     RETURNS SETOF text AS $$
 DECLARE
     indexoid oid;
+    newdir_sql text;
 BEGIN
+    newdir_sql := 'rtrim(pg_relation_filepath(''' || tbl || '''), ''0123456789'') || ''' || label || ''';';
+    RETURN NEXT 'SELECT ''rm -rf '' || ' || newdir_sql;
+    RETURN NEXT 'SELECT ''mkdir '' || ' || newdir_sql;
+
     RETURN QUERY
         SELECT 'SELECT print_transport_commands(''' ||
             label || ''', ''' ||
