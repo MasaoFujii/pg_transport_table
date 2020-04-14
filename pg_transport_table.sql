@@ -8,7 +8,7 @@ BEGIN
 	    nsp.nspname || '.' ||
 	    rel.relname || '''' || ', ' ||
 	    rel.relfilenode || ', ' ||
-	    COALESCE(pg_relation_filenode(rel.reltoastrelid), 0) || ',' ||
+	    COALESCE(pg_relation_filenode(rel.reltoastrelid), 0) || ', ' ||
 	    COALESCE(pg_relation_filenode(idx.indexrelid), 0) || ');'
         FROM pg_namespace nsp
 	    JOIN pg_class rel ON nsp.oid = rel.relnamespace
