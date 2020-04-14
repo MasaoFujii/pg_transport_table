@@ -1,8 +1,13 @@
-# How to transport tables
-1. PostgreSQL is already running in the production server. Probably it's providing database service.
+# How to transport database objects
+- Conditions
+    - All the database objects to transport at the same time should be in the same tablespace. In other words,  if you want to transport the database objects in several tablespaces, you need to transport them separately for each tablespace.
+    - There are two servers, one is the production server where PostgreSQL is already running, and the other is the temporary server.
 1. Install PostgreSQL in the temporary server if not yet. Note that the following things must be the same between the production and temporary servers.
-    - The major version of PostgreSQL (Also probably it's better to use the same minor version of PostgreSQL).
-    - The configure and compile options used when building PostgreSQL. Those options are viewable from the result of pg_config command.
+    - The major version of PostgreSQL (Also probably it's better to use the same minor version of PostgreSQL). For example, if PostgreSQL 12.2 is running in the production server, PostgreSQL 12.x should be installed in the temporary server.
+    - The configure and compile options used when building PostgreSQL. Those options in the production server are viewable from the result of pg_config command.
+    ```
+    [prod] $ pg_config
+    ```
 1. Create the database cluster in the temporary server. Note that the settings (e.g., --encoding, --locale, --data-checksums, etc) specified when creating database cluster must be the same between the temporary and production servers.
 1. Start PostgreSQL in the temporary server.
     - It's better to tune the configuration specially for high performance data bulkloading.
