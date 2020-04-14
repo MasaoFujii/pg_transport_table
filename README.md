@@ -1,14 +1,16 @@
 # How to transport database objects
 - Conditions
-    - All the database objects to transport at the same time should be in the same tablespace. In other words,  if you want to transport the database objects in several tablespaces, you need to transport them separately for each tablespace.
     - There are two servers, one is the production server where PostgreSQL is already running, and the other is the temporary server.
+    - The major version of PostgreSQL must be larger than or equal to v12.
+    - All the database objects to transport at the same time should be in the same tablespace. In other words,  if you want to transport the database objects in several tablespaces, you need to transport them separately for each tablespace.
 1. Install PostgreSQL in the temporary server if not yet. Note that the following things must be the same between the production and temporary servers.
     - The major version of PostgreSQL (Also probably it's better to use the same minor version of PostgreSQL). For example, if PostgreSQL 12.2 is running in the production server, PostgreSQL 12.x should be installed in the temporary server.
     - The configure and compile options used when building PostgreSQL. Those options in the production server are viewable from the result of ```pg_config``` command.
 1. Install pg_visibility contrib module in the temporary server if not yet.
 1. Create the database cluster in the temporary server. Note that the settings (e.g., --encoding, --locale, --data-checksums, etc) specified when creating database cluster must be the same between the temporary and production servers.
-1. Start PostgreSQL in the temporary server.
+1. Start PostgreSQL in the temporary server, with autovacuum disabled.
     - It's better to tune the configuration specially for high performance data bulkloading.
+    - The parameter autovacuum must be set to false in the postgresql.conf.
 1. Confirm that the results of the following SQL queries are the same between the production and temporary servers.
     ```
     SELECT
