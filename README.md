@@ -116,7 +116,13 @@
 
     [prod] $ scp /tmp/transport_example.sql xxx@temporary_server:/tmp/transport_example.sql
     ```
-1. Execute the file copied from the production server, as SQL file, in the temporary server. Write the output of the execution of that function into the file.
+1. Execute the file copied from the production server, as SQL file, in the temporary server. Write the output of the execution of that function into the file. For example,
+    ```
+    [temp] $ psql
+    =# \t
+    =# \o /tmp/transport_example.sh
+    =# \f /tmp/transport_example.sql
+    ```
 1. Confirm that ***[1]*** is larger than the current WAL write location (i.e., pg_current_wal_lsn()) in the temporary server.
     - If ***[1]*** is less than or equal to the current WAL write location in the temporary server, you need to back to the step that creates the database cluster.
 1. Shutdown PostgreSQL in the temporary server.
