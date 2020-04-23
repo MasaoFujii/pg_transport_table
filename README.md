@@ -131,8 +131,14 @@
     =# \o /tmp/transport_example.sh
     =# \f /tmp/transport_example.sql
     ```
+    - Note that tuple-only mode should be enabled in psql when executing the SQL file so that only actual results are output.
 1. Confirm that ***[1]*** is larger than the current WAL write location (i.e., pg_current_wal_lsn()) in the temporary server.
     - If ***[1]*** is less than or equal to the current WAL write location in the temporary server, you need to back to the step that creates the database cluster.
 1. Shutdown PostgreSQL in the temporary server.
-1. Move under the database cluster directory in the temporary server, and execute the file output by the above step, as the shell script. This shell script renames the files of the database objects to transport, so that the production server can handle them.
+1. Move under the database cluster directory in the temporary server, and execute the file output by the above step, as the shell script. This shell script renames the files of the database objects to transport, so that the production server can handle them. For example,
+    ```
+    [prod] $ cd $PGDATA
+    [prod] $ chmod 744 /tmp/transport_example.sh
+    [prod] $ /tmp/transport_example.sh
+    ```
 1. Copy all the renamed files from the temporary server to the production server.
