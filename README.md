@@ -47,6 +47,10 @@
     WHERE datname = current_database();
     ```
 1. Install the functions to use for transporting the tables, by executing pg_transport_table.sql, in both production and temporary servers if not installed yet.
+    ```
+    [prod] $ psql -f pg_transport_table.sql
+    [temp] $ psql -f pg_transport_table.sql
+    ```
 1. Make pg_visibility contrib module available in the temporary server, by executing ```CREATE EXTENSION```. For example,
     ```
     [temp] $ psql
