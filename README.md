@@ -121,7 +121,7 @@
     [prod] $ scp /tmp/transport_example.sql xxx@temporary_server:/tmp/transport_example.sql
     ```
     - Note that tuple-only mode should be enabled in psql when executing dump_relfilenodes() so that only actual function result is output.
-    - dump_relfilenodes() is the function that outputs the shell commands required to be executed in the temporary server to rename the files of database objects so that the production server can handle. Since the file names of the database object are different between production and temporary servers, the files in temporary server should be renamed so that they can be transported to the production server. dump_relfilenodes() generates the shell commands doing the rename.
+    - dump_relfilenodes() is the function that outputs the information like relfilenode of the specified table. Since the file names of the database object are different between production and temporary servers, the files in temporary server should be renamed so that they can be transported to the production server. dump_relfilenodes() outputs the information required for that rename.
       - The first argument of dump_relfilenodes() is ```label```. You can specify any string as ```label``` to label this transportation. This argument must be specified.
       - The name of table to transport must be specified in the second argument of dump_relfilenodes().
 1. Execute the file copied from the production server, as SQL file, in the temporary server. Write the output of the execution of that function into the file. For example,
