@@ -46,7 +46,7 @@
     FROM pg_database
     WHERE datname = current_database();
     ```
-1. Install the functions to use for transporting the tables, by executing pg_transport_table.sql, in both production and temporary servers if not installed yet.
+1. Install the functions to use for transporting the tables, by executing pg_transport_table.sql, in both production and temporary servers if not installed yet. For example,
     ```
     [prod] $ psql -f pg_transport_table.sql
     [temp] $ psql -f pg_transport_table.sql
@@ -90,7 +90,7 @@
     =# VACUUM FREEZE example;
     =# VACUUM FREEZE example;
     ```
-    - Note that you must confirm that there are no concurent transactions while executing '''VACUUM FREEZE'''.
+    - Note that you must confirm that there are no concurent transactions while executing ```VACUUM FREEZE```.
 1. Confirm that all the pages in the tables to transport have already been marked as *frozen*. In other words, you need to confirm that the numbers of all-frozen pages and all the pages in the tables to transport are the same.
     - The number of all-frozen pages in the table can be calculated by ```pg_visibility_map_summary()``` function that pg_visibility contrib module provides. For example,
         ```
@@ -100,7 +100,7 @@
     - The number of all the pages in the table can be calculated by dividing the relation size by the block size. For example,
         ```
         [temp] $ psql
-        =# SELECT pg_relation_size('example') / current_setting('block_size')::BIGINT;
+        =# SELECT pg_relation_size('example') / pg_size_bytes(current_setting('block_size'));
         ```
     - Note that you must not execute any transactions accessing the tables to transport, in the temporary server, since the beginning of this step and until the tranportation succeeds.
 1. Execute ```CHECKPOINT``` in the temporary server. It's better to execute ```CHECKPOINT``` at least twice just in the case. For example,
