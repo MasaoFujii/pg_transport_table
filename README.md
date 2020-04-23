@@ -129,7 +129,7 @@
     [temp] $ psql
     =# \t
     =# \o /tmp/transport_example.sh
-    =# \f /tmp/transport_example.sql
+    =# \i /tmp/transport_example.sql
     ```
     - Note that tuple-only mode should be enabled in psql when executing the SQL file so that only actual results are output.
 1. Confirm that ***[1]*** is larger than the current WAL write location (i.e., pg_current_wal_lsn()) in the temporary server.
