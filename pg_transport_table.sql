@@ -17,59 +17,49 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql STRICT VOLATILE;
 
+CREATE OR REPLACE VIEW pgtp_tblinfo AS
+    SELECT rel.oid AS rel,
+        'pgtp.' || nsp.nspname || '.' || rel.relname || '.' AS label,
+        relfilenode::text tblid,
+        pg_relation_filenode(rel.reltoastrelid)::text AS toast,
+        pg_relation_filenode(idx.indexrelid)::text AS toastidx
+    FROM pg_namespace nsp
+        JOIN pg_class rel ON nsp.oid = rel.relnamespace
+        LEFT JOIN pg_index idx ON rel.reltoastrelid = idx.indrelid;
+
 CREATE OR REPLACE FUNCTION pgtp_create_manifest (tbl regclass)
     RETURNS SETOF text AS $$
 DECLARE
     base text;
-    label text;
-    tblid text := 0;
-    toast text := 0;
-    toastidx text := 0;
+    r record;
 BEGIN
     base := rtrim(pg_relation_filepath(tbl), '0123456789');
-    SELECT
-        'transport.' || nsp.nspname || '.' || rel.relname || '.',
-        relfilenode,
-        pg_relation_filenode(rel.reltoastrelid),
-        pg_relation_filenode(idx.indexrelid)
-    INTO label, tblid, toast, toastidx
-    FROM pg_namespace nsp
-        JOIN pg_class rel ON nsp.oid = rel.relnamespace
-        LEFT JOIN pg_index idx ON rel.reltoastrelid = idx.indrelid
-    WHERE rel.oid = tbl;
-
-    RETURN QUERY SELECT pgtp_rename(base, tblid, label || 'table');
-    RETURN QUERY SELECT pgtp_rename(base, toast, label || 'toast');
-    RETURN QUERY SELECT pgtp_rename(base, toastidx, label || 'toastidx');
-    RETURN QUERY SELECT pgtp_rename(base, tblid || '_' || fork, label || fork)
+    SELECT * INTO r FROM pgtp_tblinfo WHERE rel = tbl;
+    RETURN QUERY SELECT pgtp_rename(base, r.tblid, r.label || 'table');
+    RETURN QUERY SELECT pgtp_rename(base, r.toast, r.label || 'toast');
+    RETURN QUERY SELECT pgtp_rename(base, r.toastidx, r.label || 'toastidx');
+    RETURN QUERY SELECT pgtp_rename(base, r.tblid || '_' || fork, r.label || fork)
         FROM unnest(ARRAY['fsm', 'vm', 'init']) fork;
-    RETURN QUERY SELECT pgtp_rename(base, rel.relfilenode::text, label || 'index.' || relname)
+    RETURN QUERY SELECT pgtp_rename(base, rel.relfilenode::text, r.label || 'index.' || relname)
         FROM pg_class rel JOIN pg_index idx ON rel.oid = idx.indexrelid
         WHERE idx.indrelid = tbl;
 END;
 $$ LANGUAGE plpgsql STRICT VOLATILE;
 
-
-CREATE OR REPLACE FUNCTION apply_manifest (tbl regclass, base text)
+CREATE OR REPLACE FUNCTION pgtp_apply_manifest (tbl regclass, base text)
     RETURNS SETOF text AS $$
 DECLARE
-    label text;
-    tblid oid := 0;
-    toast bigint := 0;
-    toastidx oid := 0;
+    r record;
 BEGIN
-    SELECT
-        'transport.' || nsp.nspname || '.' || rel.relname || '.',
-        relfilenode,
-        pg_relation_filenode(rel.reltoastrelid),
-        pg_relation_filenode(idx.indexrelid)
-    INTO label, tblid, toast, toastidx
-    FROM pg_namespace nsp
-        JOIN pg_class rel ON nsp.oid = rel.relnamespace
-        LEFT JOIN pg_index idx ON rel.reltoastrelid = idx.indrelid
-    WHERE rel.oid = tbl;
-
-    RETURN QUERY SELECT pgtp_rename(base, tblid, label || 'table', false);
+    SELECT * INTO r FROM pgtp_tblinfo WHERE rel = tbl;
+    RETURN QUERY SELECT pgtp_rename(base, r.label || 'table', r.tblid);
+    RETURN QUERY SELECT pgtp_rename(base, r.label || 'toast', r.toast);
+    RETURN QUERY SELECT pgtp_rename(base, r.label || 'toastidx', r.toastidx);
+    RETURN QUERY SELECT pgtp_rename(base, r.label || fork, r.tblid || '_' || fork)
+        FROM unnest(ARRAY['fsm', 'vm', 'init']) fork;
+    RETURN QUERY SELECT pgtp_rename(base, r.label || 'index.' || relname, rel.relfilenode::text)
+        FROM pg_class rel JOIN pg_index idx ON rel.oid = idx.indexrelid
+        WHERE idx.indrelid = tbl;
 END;
 $$ LANGUAGE plpgsql STRICT VOLATILE;
 
