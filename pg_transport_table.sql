@@ -1,3 +1,69 @@
+CREATE OR REPLACE FUNCTION rename_cmds (basedir text, filenode oid, label text)
+    RETURNS SETOF text AS $$
+DECLARE
+    segno bigint;
+    filename text;
+BEGIN
+RAISE NOTICE '%', basedir || filenode;
+    IF pg_stat_file(basedir || filenode, true) IS NULL THEN
+        RETURN;
+    END IF;
+    RETURN NEXT 'mv ' || filenode || ' ' || label;
+
+    segno := 1;
+    LOOP
+        filename := filenode || '.' || segno;
+        EXIT WHEN pg_stat_file(basedir || filename, true) IS NULL;
+        RETURN NEXT 'mv ' || filename || ' ' || label || '.' || segno;
+        segno := segno + 1;
+    END LOOP;
+END;
+$$ LANGUAGE plpgsql STRICT VOLATILE;
+
+CREATE OR REPLACE FUNCTION transport_manifest (tbl regclass)
+    RETURNS SETOF text AS $$
+DECLARE
+    basedir text;
+    label text;
+    tblid oid := 0;
+    toast bigint := 0;
+    toastidx oid := 0;
+    segno bigint;
+    filename text;
+    fork text;
+    rec record;
+BEGIN
+    SELECT
+        'transport.' || nsp.nspname || '.' || rel.relname || '.',
+        pg_relation_filenode(rel.reltoastrelid),
+        pg_relation_filenode(idx.indexrelid)
+    INTO label, toast, toastidx
+    FROM pg_namespace nsp
+        JOIN pg_class rel ON nsp.oid = rel.relnamespace
+        LEFT JOIN pg_index idx ON rel.reltoastrelid = idx.indrelid
+    WHERE rel.oid = tbl;
+    basedir := rtrim(pg_relation_filepath(tbl), '0123456789');
+    tblid := pg_relation_filenode(tbl);
+
+    RETURN QUERY SELECT rename_cmds(basedir, tblid, label || 'table');
+    RETURN QUERY SELECT rename_cmds(basedir, toast, label || 'toast');
+    RETURN QUERY SELECT rename_cmds(basedir, toastidx, label || 'toastidx');
+
+    FOR fork IN SELECT unnest(ARRAY['fsm', 'vm', 'init']) LOOP
+        filename := tblid || '_' || fork;
+	CONTINUE WHEN pg_stat_file(basedir || filename, true) IS NULL;
+        RETURN NEXT 'mv ' || filename || ' ' || label || fork;
+    END LOOP;
+
+    FOR rec IN SELECT label || 'index.' || rel.relname AS label, rel.relfilenode
+       FROM pg_class rel JOIN pg_index idx ON rel.oid = idx.indexrelid
+        WHERE idx.indrelid = tbl LOOP
+        RETURN QUERY SELECT rename_cmds(basedir, rec.relfilenode, rec.label);
+    END LOOP;
+END;
+$$ LANGUAGE plpgsql STRICT VOLATILE;
+
+
 CREATE OR REPLACE FUNCTION dump_relfilenodes (label text, tbl regclass)
     RETURNS SETOF text AS $$
 DECLARE
