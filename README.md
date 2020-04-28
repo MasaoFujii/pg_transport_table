@@ -1,13 +1,13 @@
 # How to transport database objects
 - Conditions
     - There are two servers, one is the production server where PostgreSQL is already running, and the other is the temporary server.
-    - The major version of PostgreSQL must be larger than or equal to v12.
+    - The major version of PostgreSQL that you use must be larger than or equal to v12.
     - All the database objects to transport at the same time should be in the same tablespace. In other words,  if you want to transport the database objects in several tablespaces, you need to transport them separately for each tablespace.
 1. Install PostgreSQL in the temporary server if not yet. Note that the following things must be the same between the production and temporary servers.
     - The major version of PostgreSQL (Also probably it's better to use the same minor version of PostgreSQL). For example, if PostgreSQL 12.2 is running in the production server, PostgreSQL 12.x should be installed in the temporary server.
     - The configure and compile options used when building PostgreSQL. Those options in the production server are viewable from the result of ```pg_config``` command.
 1. Install pg_visibility contrib module in the temporary server if not yet.
-1. Create the database cluster in the temporary server. Note that the settings (e.g., --encoding, --locale, --data-checksums, etc) specified when creating database cluster must be the same between the temporary and production servers.
+1. Create the database cluster in the temporary server if not yet. Note that the settings (e.g., --encoding, --locale, --data-checksums, etc) specified when creating database cluster must be the same between the temporary and production servers.
 1. Start PostgreSQL in the temporary server, with autovacuum disabled.
     - It's better to tune the configuration specially for high performance data bulkloading.
     - The parameter autovacuum must be set to false in the postgresql.conf.
@@ -46,12 +46,13 @@
     FROM pg_database
     WHERE datname = current_database();
     ```
+    - If the results are not the same, you need to prepare the temporary server again so that they become the same.
 1. Install the functions to use for transporting the tables, by executing pg_transport_table.sql, in both production and temporary servers if not installed yet. For example,
     ```
     [prod] $ psql -f pg_transport_table.sql
     [temp] $ psql -f pg_transport_table.sql
     ```
-1. Make pg_visibility contrib module available in the temporary server, by executing ```CREATE EXTENSION```. For example,
+1. Make pg_visibility contrib module available in the temporary server if not yet, by executing ```CREATE EXTENSION```. For example,
     ```
     [temp] $ psql
     =# CREATE EXTENSION pg_visibility;
@@ -69,11 +70,18 @@
         [temp] $ psql
         =# SELECT pg_current_wal_lsn();
         ```
+1. Create the tablespace where the tables to transport will be located, in the temporary server. For example,
+    ```
+    [temp] mkdir /mnt/pgtblspc/test
+    [temp] psql
+    =# CREATE TABLESPACE test LOCATION '/mnt/pgtblspc/test';
+    ```
 1. Create the tables to transport in the temporary server. Also create other database objects like indexes, partitions, etc related to the tables in the temporary server. For example,
     ```
     [temp] $ psql
-    =# CREATE TABLE example (key BIGINT PRIMARY KEY, val TEXT);
+    =# CREATE TABLE example (key BIGINT PRIMARY KEY USING INDEX TABLESPACE test, val TEXT) TABLESPACE test;
     ```
+    - All the database objects to transport must be located in the same tablespace.
 1. Load data to the tables in the temporary server. For example,
     ```
     [temp] $ psql
@@ -82,7 +90,7 @@
 1. Create the database objects required for the tables that will be transported, in the temporary server, if necessary. For example, you might want to create indexes after data loading,
     ```
     [temp] $ psql
-    =# CREATE INDEX example_val_idx ON example (val);
+    =# CREATE INDEX example_val_idx ON example (val) TABLESPACE test;
     ```
 1. Execute ```VACUUM FREEZE``` on the tables to transport, in the temporary server. It's better to execute ```VACUUM FREEZE``` at least twice just in the case. For example,
     ```
@@ -108,6 +116,27 @@
     [temp] psql
     =# CHECKPOINT;
     =# CHECKPOINT;
+    ```
+1. Execute ```pgtp_create_manifest()``` function with each table to transport, in the temporary server. Write the output of the function into the file. For example,
+    ```
+    [temp] psql
+    =# \t
+    =# \o /tmp/transport_example.sh
+    =# SELECT pgtp_create_manifest('example');
+    ```
+    - Note that tuple-only mode should be enabled in psql when executing ```pgtp_create_manifest()``` so that only actual function result is output.
+    - The name of table to transport needs to be specified in the second argument of ```pgtp_create_manifest()```.
+1. Shutdown PostgreSQL in the temporary server.
+1. Move to the directory where the tables to transport are located, in the temporary server. Execute the file output by ```pgtp_create_manifest()``` as the shell script, there. For example,
+    ```
+    [temp] $ cd /mnt/pgtblspc/test/PG_13_202004241/12924
+    [temp] $ chmod 744 /tmp/transport_example.sh
+    [temp] $ /tmp/transport_example.sh
+    ```
+    - The directory where the tables to transport are located is the subdirectory with a path that depends on the PostgreSQL version and database OID, under the tablespace directory.
+1. Execute ```umount``` to detach the file system where the tables to transport are located, in the temporary server. For example,
+    ```
+    [temp] $ sudo umount /dev/sdb1
     ```
 1. Create tables to transport in the production server. Also create other database objects like indexes, partitions, etc related to the tables in the production server. All the database objects related to the tables to transport must be created in the same way in both temporary and production servers.
 1. Execute dump_relfilenodes() with each table to transport, in the production server. Write the output of the function into the file, and copy the output file from the production server to the temporary server. For example,
