@@ -72,14 +72,14 @@
         ```
 1. Create the tablespace where the tables to transport will be located, in the temporary server. For example,
     ```
-    [temp] mkdir /mnt/pgtblspc/test
+    [temp] mkdir /mnt/pgtblspc/test_tmp
     [temp] psql
-    =# CREATE TABLESPACE test LOCATION '/mnt/pgtblspc/test';
+    =# CREATE TABLESPACE test_tmp LOCATION '/mnt/pgtblspc/test_tmp';
     ```
 1. Create the tables to transport in the temporary server. Also create other database objects like indexes, partitions, etc related to the tables in the temporary server. For example,
     ```
     [temp] $ psql
-    =# CREATE TABLE example (key BIGINT PRIMARY KEY USING INDEX TABLESPACE test, val TEXT) TABLESPACE test;
+    =# CREATE TABLE example (key BIGINT PRIMARY KEY USING INDEX TABLESPACE test_tmp, val TEXT) TABLESPACE test_tmp;
     ```
     - All the database objects to transport must be located in the same tablespace.
 1. Load data to the tables in the temporary server. For example,
@@ -90,7 +90,7 @@
 1. Create the database objects required for the tables that will be transported, in the temporary server, if necessary. For example, you might want to create indexes after data loading,
     ```
     [temp] $ psql
-    =# CREATE INDEX example_val_idx ON example (val) TABLESPACE test;
+    =# CREATE INDEX example_val_idx ON example (val) TABLESPACE test_tmp;
     ```
 1. Execute ```VACUUM FREEZE``` on the tables to transport, in the temporary server. It's better to execute ```VACUUM FREEZE``` at least twice just in the case. For example,
     ```
@@ -121,49 +121,54 @@
     ```
     [temp] psql
     =# \t
-    =# \o /tmp/transport_example.sh
+    =# \o /tmp/transport_example_temp.sh
     =# SELECT pgtp_create_manifest('example');
     ```
     - Note that tuple-only mode should be enabled in psql when executing ```pgtp_create_manifest()``` so that only actual function result is output.
-    - The name of table to transport needs to be specified in the second argument of ```pgtp_create_manifest()```.
+    - The name of table to transport needs to be specified in the argument of ```pgtp_create_manifest()```.
 1. Shutdown PostgreSQL in the temporary server.
 1. Move to the directory where the tables to transport are located, in the temporary server. Execute the file output by ```pgtp_create_manifest()``` as the shell script, there. For example,
     ```
-    [temp] $ cd /mnt/pgtblspc/test/PG_13_202004241/12924
-    [temp] $ chmod 744 /tmp/transport_example.sh
-    [temp] $ /tmp/transport_example.sh
+    [temp] $ cd /mnt/pgtblspc/test_tmp/PG_13_202004241/12924
+    [temp] $ chmod 744 /tmp/transport_example_temp.sh
+    [temp] $ /tmp/transport_example_temp.sh
     ```
     - The directory where the tables to transport are located is the subdirectory with a path that depends on the PostgreSQL version and database OID, under the tablespace directory.
 1. Execute ```umount``` to detach the file system where the tables to transport are located, in the temporary server. For example,
     ```
     [temp] $ sudo umount /dev/sdb1
     ```
+1. Execute ```mount``` to attach the file system where the tables to transport are located, in the production server. For example,
+    ```
+    [prod] $ sudo mount /dev/sdb1 /mnt/pgtblspc
+    ```
+1. Create the tablespace where the tables to transport will be finally located, in the production server. For example,
+    ```
+    [prod] mkdir /mnt/pgtblspc/test
+    [prod] psql
+    =# CREATE TABLESPACE test LOCATION '/mnt/pgtblspc/test';
+    ```
 1. Create tables to transport in the production server. Also create other database objects like indexes, partitions, etc related to the tables in the production server. All the database objects related to the tables to transport must be created in the same way in both temporary and production servers.
-1. Execute dump_relfilenodes() with each table to transport, in the production server. Write the output of the function into the file, and copy the output file from the production server to the temporary server. For example,
+    - All the database objects to transport must be located in the same tablespace.
+1. Execute ```pgtp_apply_manifest()``` with each table to transport, in the production server. Write the output of the function into the file. For example,
     ```
     [prod] $ psql
     =# \t
-    =# \o /tmp/transport_example.sql
-    =# SELECT dump_relfilenodes('test', 'example');
-    =# \q
-
-    [prod] $ scp /tmp/transport_example.sql xxx@temporary_server:/tmp/transport_example.sql
+    =# \o /tmp/transport_example_prod.sh
+    =# SELECT pgtp_apply_manifest('example', '/mnt/pgtblspc/test_tmp/PG_13_202004241/12924/');
     ```
-    - Note that tuple-only mode should be enabled in psql when executing dump_relfilenodes() so that only actual function result is output.
-    - dump_relfilenodes() is the function that outputs the information like relfilenode of the specified table. Since the file names of the database object are different between production and temporary servers, the files in temporary server should be renamed so that they can be transported to the production server. dump_relfilenodes() outputs the information required for that rename.
-      - The first argument of dump_relfilenodes() is ```label```. You can specify any string as ```label``` to label this transportation. This argument must be specified.
-      - The name of table to transport must be specified in the second argument of dump_relfilenodes().
-1. Execute the file copied from the production server, as SQL file, in the temporary server. Write the output of the execution of that function into the file. For example,
+    - Note that tuple-only mode should be enabled in psql when executing ```pgtp_apply_manifest()``` so that only actual function result is output.
+    - The name of table to transport needs to be specified in the first argument of ```pgtp_apply_manifest()```.
+    - The path to the directory where the tables transported by the temporary server are located, should be specified in the second argument of ```pgtp_apply_manifest()```.
+1. Move to the directory where the tables to transport are located, in the production server. Execute the file output by ```pgtp_apply_manifest()``` as the shell script, there. For example,
     ```
-    [temp] $ psql
-    =# \t
-    =# \o /tmp/transport_example.sh
-    =# \i /tmp/transport_example.sql
+    [prod] $ cd /mnt/pgtblspc/test_tmp/PG_13_202004241/12924
+    [prod] $ chmod 744 /tmp/transport_example_prod.sh
+    [prod] $ /tmp/transport_example_prod.sh
     ```
-    - Note that tuple-only mode should be enabled in psql when executing the SQL file so that only actual results are output.
+1. Move all the files in the directory to the directory.
 1. Confirm that ***[1]*** is larger than the current WAL write location (i.e., pg_current_wal_lsn()) in the temporary server.
     - If ***[1]*** is less than or equal to the current WAL write location in the temporary server, you need to back to the step that creates the database cluster.
-1. Shutdown PostgreSQL in the temporary server.
 1. Move under the database cluster directory in the temporary server, and execute the file output by the above step, as the shell script. This shell script renames the files of the database objects to transport, so that the production server can handle them. For example,
     ```
     [prod] $ cd $PGDATA
