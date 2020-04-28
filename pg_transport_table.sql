@@ -1,3 +1,82 @@
+CREATE OR REPLACE FUNCTION pgtp_check_controlfile
+    (conninfo text, col text, coltype text, rel text) RETURNS void AS $$
+DECLARE
+    sql text;
+    diff boolean;
+BEGIN
+    sql := 'SELECT x <> ' || col || ' FROM dblink(''' || conninfo || ''',
+        ''SELECT ' || col || ' FROM ' || rel || ''') AS t(x ' || coltype || '), ' || rel;
+    EXECUTE sql INTO diff;
+    IF diff THEN
+        RAISE EXCEPTION '% must be the same between two servers', col;
+    END IF;
+END;
+$$ LANGUAGE plpgsql STRICT VOLATILE;
+
+CREATE OR REPLACE FUNCTION pgtp_check_presetguc
+    (conninfo text, guc text) RETURNS void AS $$
+DECLARE
+    sql text;
+    diff boolean;
+BEGIN
+    sql := 'SELECT current_setting(''' || guc || ''') <> x FROM dblink(''' ||
+        conninfo || ''', ''SELECT current_setting(''''' || guc || ''''')'') AS t(x text)';
+    EXECUTE sql INTO diff;
+    IF diff THEN
+        RAISE EXCEPTION '% must be the same between two servers', guc;
+    END IF;
+END;
+$$ LANGUAGE plpgsql STRICT VOLATILE;
+
+CREATE OR REPLACE FUNCTION pgtp_check_lsn (conninfo text)
+    RETURNS void AS $$
+DECLARE
+    sql text;
+    res boolean;
+    msg text;
+BEGIN
+    sql := 'SELECT x <= pg_current_wal_lsn()  FROM dblink(''' || conninfo ||
+        ''', ''SELECT redo_lsn FROM pg_control_checkpoint()'') AS t(x pg_lsn)';
+    EXECUTE sql INTO res;
+    IF res THEN
+        msg := 'REDO lsn in prod server must be larger than latest lsn in temp server';
+        RAISE EXCEPTION '%', msg;
+    END IF;
+END;
+$$ LANGUAGE plpgsql STRICT VOLATILE;
+
+CREATE OR REPLACE FUNCTION pgtp_check_conditions (conninfo text)
+    RETURNS void AS $$
+DECLARE
+    r record;
+BEGIN
+    FOR r IN SELECT * FROM unnest(ARRAY['dblink', 'pg_visibility']) ext
+        WHERE NOT EXISTS (SELECT * FROM pg_extension WHERE extname = ext) LOOP
+        RAISE EXCEPTION 'required extension not found: %', r.ext;
+    END LOOP;
+    IF current_setting('autovacuum')::boolean THEN
+        RAISE EXCEPTION 'autovacuum must be disabled';
+    END IF;
+    PERFORM pgtp_check_controlfile(
+        conninfo, col, 'integer', 'pg_control_system()')
+        FROM unnest(ARRAY['pg_control_version', 'catalog_version_no']) col;
+    PERFORM pgtp_check_controlfile(
+        conninfo, col, 'integer', 'pg_control_init()')
+        FROM unnest(ARRAY['max_data_alignment', 'database_block_size',
+            'blocks_per_segment', 'wal_block_size', 'bytes_per_wal_segment',
+            'max_identifier_length', 'max_index_columns',
+            'max_toast_chunk_size', 'large_object_chunk_size',
+            'data_page_checksum_version']) col;
+    PERFORM pgtp_check_controlfile(conninfo, 'float8_pass_by_value',
+        'boolean', 'pg_control_init()');
+    PERFORM pgtp_check_presetguc(conninfo, guc) FROM
+        unnest(ARRAY['block_size', 'data_checksums', 'data_directory_mode',
+        'integer_datetimes', 'max_function_args', 'max_identifier_length',
+        'max_index_keys', 'segment_size', 'wal_block_size', 'wal_segment_size']) guc;
+    PERFORM pgtp_check_lsn(conninfo);
+END;
+$$ LANGUAGE plpgsql STRICT VOLATILE;
+
 CREATE OR REPLACE FUNCTION pgtp_rename (base text, src text, dst text)
     RETURNS SETOF text AS $$
 DECLARE
